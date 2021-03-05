@@ -1,0 +1,13 @@
+Potential features for next version of Mealplan
+
+- Delete diner function in admin module
+- Separate column for meal plan type
+- Ability to add/remove arbitrary check-ins
+- Move database to server (requires server space for database)
+- Re-implement parts/all as desktop application (using electron.js)
+- Re-implement parts/all as client-server application (requires application server)
+  - Add customer interface to view meal balance and sign-up.
+  - Add real-time ID lookup or caching.
+
+Added as of 8/30/2018 (0.1.1)
+- Adjust timestamp queries to accomodate SQLite's conversion of times to UTC.
