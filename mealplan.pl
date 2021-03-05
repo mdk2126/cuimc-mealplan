@@ -1,6 +1,10 @@
 #! /usr/bin/perl
 
+my $version = '0.1.2';
+
 # Update to 0.1.1 -- Convert SQLite UTC timestamps to local time for display.
+# Update to 0.1.2 -- Fix another UTC bug by explicitly storing local time
+#                    in the database and reverting most 0.1.1 fixes.
 
 use strict;
 use warnings;
@@ -22,12 +26,14 @@ $db->{AutoCommit} = 1;
 my $getuni = $db->prepare("SELECT UNI FROM ids WHERE id = ?");
 my $getdiner = $db->prepare("SELECT UNI, Name, MealPlan, Affil from diners WHERE UNI = ?");
 my $getmealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI = ?");
-my $addmealcheckin = $db->prepare("INSERT INTO checkin (UNI) VALUES (?)");
+# -- Corrected for 0.1.2 below  my $addmealcheckin = $db->prepare("INSERT INTO checkin (UNI) VALUES (?)");
+my $addmealcheckin = $db->prepare("INSERT INTO checkin (UNI, Timestamp) VALUES (?, datetime('now','localtime'))");
 my $addcardno = $db->prepare("INSERT OR IGNORE INTO ids (id, UNI) VALUES(?,?)");
-my $todaymealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI = ? AND Timestamp LIKE date('now') || '%'");
-my $prevcheckin = $db->prepare("SELECT datetime(Timestamp, 'localtime') FROM checkin WHERE UNI = ? ORDER BY Timestamp DESC LIMIT 1");
+my $todaymealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI = ? AND Timestamp LIKE date('now', 'localtime') || '%'");
+#my $todaymealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI = ? AND Timestamp > datetime('now', '-4 hours')");
+my $prevcheckin = $db->prepare("SELECT Timestamp FROM checkin WHERE UNI = ? ORDER BY Timestamp DESC LIMIT 1");
 
-my $dialog = new UI::Dialog (title => "CUIMC MealPlan 0.1.1", height => "12");
+my $dialog = new UI::Dialog (title => "CUIMC MealPlan $version", height => "12");
 
 #my $result = $dialog->inputbox( text => 'Please enter a UNI or card number:' );
 my $message = 'Please enter a UNI or ID card number:';

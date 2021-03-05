@@ -1,6 +1,9 @@
 #! /usr/bin/perl
 
+my $version = "0.1.2";
+
 # Update to 0.1.1 -- SQLite converts timestamps to UTC.  Adjust $dailyreport query to allow for this.
+# Update to 0.1.2 -- Forced mealplan.pl to save timestamps in localtime.  Rolling back most 0.1.1 fixes.
 
 use strict;
 use warnings;
@@ -27,10 +30,11 @@ my $adddiner = $db->prepare("INSERT INTO diners (UNI, Name, MealPlan, Affil) VAL
 my $updatediner = $db->prepare("UPDATE diners SET Name = ?, MealPlan = ?, Affil = ? WHERE UNI = ?");
 my $summaryreport = $db->prepare("SELECT Name, diners.UNI, Affil, MealPlan, COUNT(Timestamp) FROM diners LEFT JOIN checkin on diners.UNI = checkin.UNI GROUP BY diners.UNI ORDER BY Name");
 my $meallog = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, Timestamp FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI ORDER BY Timestamp");
-my $dailyreport = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, datetime(Timestamp, 'localtime'), COUNT(Timestamp) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?, 'utc') AND Timestamp < DATETIME(?, 'utc') GROUP BY checkin.UNI ORDER BY Name");
-my $dailycount = $db->prepare("SELECT COUNT(Timestamp) FROM checkin WHERE Timestamp LIKE ?");
+# Corrected below for 0.1.2 -- my $dailyreport = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, datetime(Timestamp, 'localtime'), COUNT(Timestamp) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?, 'utc') AND Timestamp < DATETIME(?, 'utc') GROUP BY checkin.UNI ORDER BY Name");
+my $dailyreport = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, Timestamp, COUNT(Timestamp) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?) AND Timestamp < DATETIME(?) GROUP BY checkin.UNI ORDER BY Name");
+my $dailycount = $db->prepare("SELECT COUNT(Timestamp) FROM checkin WHERE Timestamp LIKE ? || '%'");
 my $getmealcount = $db->prepare("SELECT COUNT(*) FROM checkin WHERE UNI = ?");
-my $getuserlog = $db->prepare("SELECT datetime(Timestamp, 'localtime') FROM checkin WHERE UNI = ?");
+my $getuserlog = $db->prepare("SELECT Timestamp FROM checkin WHERE UNI = ?");
 my $loaddiner = $db->prepare("INSERT OR REPLACE INTO diners (UNI, Name, MealPlan, Affil) VALUES (?,?,?,?)");
 my $getids = $db->prepare("SELECT ID, UNI FROM ids WHERE UNI = ?");
 my $getidmap = $db->prepare("SELECT Name, ids.UNI, Affil, ID, MealPlan FROM ids INNER JOIN diners ON ids.UNI = diners.UNI WHERE ids.UNI LIKE ? ORDER BY Name");
@@ -46,7 +50,7 @@ sub reports;
 sub db_maint;
 sub get_timestamp;
 
-my $dialog = new UI::Dialog::Backend::CDialog (backtitle => "CUIMC MealPlan Admin 0.1.1");
+my $dialog = new UI::Dialog::Backend::CDialog (backtitle => "CUIMC MealPlan Admin $version");
 
 my $result = 1;
 
@@ -477,7 +481,7 @@ sub reports {
             my $rptenddate = sprintf("%04d-%02d-%02d", $y, $m, $d) . " 24:00";
             $dailyreport->execute($rptstartdate, $rptenddate);
             $dailycount->execute($rptdate);
-            chop $rptdate;
+	    #chomp $rptdate;
             my $count = ($dailycount->fetchrow_array())[0];
             my $csv = Text::CSV->new ({ eol => "\r\n",
                                         auto_diag => 2}) or die "Cannot use CSV: " . Text::CSV->error_diag();
