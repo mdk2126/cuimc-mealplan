@@ -11,3 +11,7 @@ Potential features for next version of Mealplan
 
 Added as of 8/30/2018 (0.1.1)
 - Adjust timestamp queries to accomodate SQLite's conversion of times to UTC.
+
+Added as of 9/24/2021
+- Modified load to accept a card number and add to database.
+- Corrected bug related to case sensitivity in UNI search.

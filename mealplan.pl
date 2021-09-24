@@ -1,10 +1,11 @@
 #! /usr/bin/perl
 
-my $version = '0.1.2';
+my $version = '0.1.3';
 
 # Update to 0.1.1 -- Convert SQLite UTC timestamps to local time for display.
 # Update to 0.1.2 -- Fix another UTC bug by explicitly storing local time
 #                    in the database and reverting most 0.1.1 fixes.
+# Update to 0.1.3 -- Fix problem with uppercase UNIs.
 
 use strict;
 use warnings;
@@ -24,14 +25,14 @@ $db->{sqlite_unicode} = 1;
 $db->{AutoCommit} = 1;
 
 my $getuni = $db->prepare("SELECT UNI FROM ids WHERE id = ?");
-my $getdiner = $db->prepare("SELECT UNI, Name, MealPlan, Affil from diners WHERE UNI = ?");
-my $getmealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI = ?");
+my $getdiner = $db->prepare("SELECT UNI, Name, MealPlan, Affil from diners WHERE UNI COLLATE NOCASE = ?");
+my $getmealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI COLLATE NOCASE = ?");
 # -- Corrected for 0.1.2 below  my $addmealcheckin = $db->prepare("INSERT INTO checkin (UNI) VALUES (?)");
 my $addmealcheckin = $db->prepare("INSERT INTO checkin (UNI, Timestamp) VALUES (?, datetime('now','localtime'))");
 my $addcardno = $db->prepare("INSERT OR IGNORE INTO ids (id, UNI) VALUES(?,?)");
 my $todaymealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI = ? AND Timestamp LIKE date('now', 'localtime') || '%'");
 #my $todaymealcount = $db->prepare("SELECT count(*) FROM checkin WHERE UNI = ? AND Timestamp > datetime('now', '-4 hours')");
-my $prevcheckin = $db->prepare("SELECT Timestamp FROM checkin WHERE UNI = ? ORDER BY Timestamp DESC LIMIT 1");
+my $prevcheckin = $db->prepare("SELECT Timestamp FROM checkin WHERE UNI COLLATE NOCASE = ? ORDER BY Timestamp DESC LIMIT 1");
 
 my $dialog = new UI::Dialog (title => "CUIMC MealPlan $version", height => "12");
 

@@ -1,9 +1,10 @@
 #! /usr/bin/perl
 
-my $version = "0.1.2";
+my $version = "0.1.3";
 
 # Update to 0.1.1 -- SQLite converts timestamps to UTC.  Adjust $dailyreport query to allow for this.
 # Update to 0.1.2 -- Forced mealplan.pl to save timestamps in localtime.  Rolling back most 0.1.1 fixes.
+# Update to 0.1.3 -- Add ability to load card numbers; fix problem with upper-case UNIs.
 
 use strict;
 use warnings;
@@ -25,18 +26,18 @@ $db->{sqlite_unicode} = 1;
 $db->{AutoCommit} = 1;
 
 my $getalldiners = $db->prepare("SELECT Name, UNI from diners ORDER BY Name");
-my $getdiner = $db->prepare("SELECT UNI, Name, MealPlan, Affil from diners WHERE UNI = ?");
+my $getdiner = $db->prepare("SELECT UNI, Name, MealPlan, Affil from diners WHERE UNI COLLATE NOCASE = ?");
 my $adddiner = $db->prepare("INSERT INTO diners (UNI, Name, MealPlan, Affil) VALUES (?,?,?,?)");
-my $updatediner = $db->prepare("UPDATE diners SET Name = ?, MealPlan = ?, Affil = ? WHERE UNI = ?");
+my $updatediner = $db->prepare("UPDATE diners SET Name = ?, MealPlan = ?, Affil = ? WHERE UNI COLLATE NOCASE = ?");
 my $summaryreport = $db->prepare("SELECT Name, diners.UNI, Affil, MealPlan, COUNT(Timestamp) FROM diners LEFT JOIN checkin on diners.UNI = checkin.UNI GROUP BY diners.UNI ORDER BY Name");
 my $meallog = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, Timestamp FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI ORDER BY Timestamp");
 # Corrected below for 0.1.2 -- my $dailyreport = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, datetime(Timestamp, 'localtime'), COUNT(Timestamp) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?, 'utc') AND Timestamp < DATETIME(?, 'utc') GROUP BY checkin.UNI ORDER BY Name");
 my $dailyreport = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, Timestamp, COUNT(Timestamp) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?) AND Timestamp < DATETIME(?) GROUP BY checkin.UNI ORDER BY Name");
 my $dailycount = $db->prepare("SELECT COUNT(Timestamp) FROM checkin WHERE Timestamp LIKE ? || '%'");
-my $getmealcount = $db->prepare("SELECT COUNT(*) FROM checkin WHERE UNI = ?");
+my $getmealcount = $db->prepare("SELECT COUNT(*) FROM checkin WHERE UNI COLLATE NOCASE = ?");
 my $getuserlog = $db->prepare("SELECT Timestamp FROM checkin WHERE UNI = ?");
 my $loaddiner = $db->prepare("INSERT OR REPLACE INTO diners (UNI, Name, MealPlan, Affil) VALUES (?,?,?,?)");
-my $getids = $db->prepare("SELECT ID, UNI FROM ids WHERE UNI = ?");
+my $getids = $db->prepare("SELECT ID, UNI FROM ids WHERE UNI COLLATE NOCASE = ?");
 my $getidmap = $db->prepare("SELECT Name, ids.UNI, Affil, ID, MealPlan FROM ids INNER JOIN diners ON ids.UNI = diners.UNI WHERE ids.UNI LIKE ? ORDER BY Name");
 my $addcardno = $db->prepare("INSERT INTO ids (id, UNI) VALUES(?,?)");
 my $getunifromid = $db->prepare("SELECT Name, ids.UNI, Affil, ID, MealPlan FROM ids LEFT JOIN diners ON ids.UNI = diners.UNI WHERE ids.ID = ?");
@@ -92,18 +93,21 @@ while(1) {
 sub load_diners {
     my $result = $dialog->msgbox( title=>"Load Diners Instructions",
                                   height => 20,
-                                  text => q#The load file is a CSV file located in \\Mealplan\\Load.  The first four columns of the Load file must be:
+                                  text => q#The load file is a CSV file located in \\Mealplan\\Load.  The first five columns of the Load file must be:
     
     A - Name
     B - UNI
     C - Affiliation
     D - Number of meals
+    E - Card Number (optional)
     
 Any additional columns are ignored.  
 
 The top line MAY be a header line, with the word "UNI" in the UNI column.  Any line where the UNI is blank or does not contain numbers will be ignored.
 
 If a UNI already exists in the database, it will be updated.
+
+The card number is optional.  Card numbers must be exactly 9 numeric characters.  Anything else in this column will be ignored.
 
 To export from Microsoft Excel, save the file as type "CSV (Comma delimited)(*.csv)" to the correct directory.  The extension must be csv.  Do not use spaces in the file name.
 
@@ -149,14 +153,15 @@ To export from Microsoft Excel, save the file as type "CSV (Comma delimited)(*.c
     }
     my $counter = 1;
     $message .= "Sample data (Please ignore the . characters):\n\n";
-    my $line = sprintf('  %-30.30s | %-7.7s | %-7.7s | %-4.4s', "Name", "UNI", "Affil", "Plan");
+    my $line = sprintf('  %-18.18s | %-7.7s | %-7.7s | %-4.4s | %-9.9s', "Name", "UNI", "Affil", "Plan", "Card No");
     $line =~ s/\s/\./g;
     $line =~ s/^\.\./  /;
     $line =~ s/\.\|\./ \| /g;
     $message .= $line . "\n";
     while ($temp = $csv->getline($fh)) {
         if (!defined $$temp[1] or length $$temp[1] < 2) {next}
-        my $line = sprintf("  %-30.30s | %-7.7s | %-7.7s | %4d", $$temp[0], $$temp[1], $$temp[2], $$temp[3]);
+		if (!defined $$temp[4] or $$temp[4] !~ /\d{9}/) {$$temp[4] = " "}
+        my $line = sprintf("  %-18.18s | %-7.7s | %-7.7s | %4d | %-9.9s", $$temp[0], $$temp[1], $$temp[2], $$temp[3], $$temp[4]);
         $line =~ s/\s/\./g;
         $line =~ s/^\.\./  /;
         $line =~ s/\.\|\./ \| /g;
@@ -179,6 +184,9 @@ To export from Microsoft Excel, save the file as type "CSV (Comma delimited)(*.c
         if (!defined $$temp[1] or length $$temp[1] < 2 or $$temp[1] !~ /\d/) {next}
         $$temp[1] = lc $$temp[1];
         $loaddiner->execute($$temp[1], $$temp[0], $$temp[3], $$temp[2]);
+		if (defined $$temp[4] && $$temp[4] =~ /\d{9}/) {
+			$addcardno->execute($$temp[4], $$temp[1]);
+		}
         $counter++;
         if ($counter % 50 == 0) {$dialog->infobox(title => "Load Progress", text => "Please wait, loading diners....\n\n$counter diners loaded.")};
     }
@@ -278,6 +286,7 @@ sub edit_diners {
         #<STDIN>;
         my $message;
         if ($new == 1) {
+			$uni = lc($uni);
             $adddiner->execute($uni, $temp[0], $temp[1], $temp[2]);
             $message = "Diner added!\n";
         } else {
@@ -584,7 +593,7 @@ sub db_maint {
                 $db->do("DROP TABLE IF EXISTS diners");
                 $db->do("DROP TABLE IF EXISTS ids");
                 $db->do("DROP TABLE IF EXISTS checkin");
-                $db->do("CREATE TABLE diners (UNI unique, Name, MealPlan, Affil text)");
+                $db->do("CREATE TABLE diners (UNI unique COLLATE NOCASE, Name, MealPlan, Affil text)");
                 $db->do("CREATE TABLE ids (ID unique, UNI)");
                 $db->do("CREATE TABLE checkin (UNI, Timestamp default CURRENT_TIMESTAMP)");
                 $db->do("CREATE INDEX UNI on checkin (UNI)");
