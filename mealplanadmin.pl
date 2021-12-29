@@ -1,10 +1,11 @@
 #! /usr/bin/perl
 
-my $version = "0.1.3";
+my $version = "0.1.4";
 
 # Update to 0.1.1 -- SQLite converts timestamps to UTC.  Adjust $dailyreport query to allow for this.
 # Update to 0.1.2 -- Forced mealplan.pl to save timestamps in localtime.  Rolling back most 0.1.1 fixes.
 # Update to 0.1.3 -- Add ability to load card numbers; fix problem with upper-case UNIs.
+# Update to 0.1.4 -- Allow view of card numbers when editing users; Add affiliation summary to daily report.
 
 use strict;
 use warnings;
@@ -34,6 +35,7 @@ my $meallog = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, Timestamp
 # Corrected below for 0.1.2 -- my $dailyreport = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, datetime(Timestamp, 'localtime'), COUNT(Timestamp) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?, 'utc') AND Timestamp < DATETIME(?, 'utc') GROUP BY checkin.UNI ORDER BY Name");
 my $dailyreport = $db->prepare("SELECT Name, checkin.UNI, MealPlan, Affil, Timestamp, COUNT(Timestamp) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?) AND Timestamp < DATETIME(?) GROUP BY checkin.UNI ORDER BY Name");
 my $dailycount = $db->prepare("SELECT COUNT(Timestamp) FROM checkin WHERE Timestamp LIKE ? || '%'");
+my $dailyaffilcount = $db->prepare("SELECT Affil, COUNT(Affil) FROM diners INNER JOIN checkin on diners.UNI = checkin.UNI WHERE Timestamp > DATETIME(?) AND Timestamp < DATETIME(?) GROUP BY Affil ORDER BY Affil");
 my $getmealcount = $db->prepare("SELECT COUNT(*) FROM checkin WHERE UNI COLLATE NOCASE = ?");
 my $getuserlog = $db->prepare("SELECT Timestamp FROM checkin WHERE UNI = ?");
 my $loaddiner = $db->prepare("INSERT OR REPLACE INTO diners (UNI, Name, MealPlan, Affil) VALUES (?,?,?,?)");
@@ -274,12 +276,21 @@ sub edit_diners {
                              height => 20);
             next;
         }       
+        my $ids;
+        $getids->execute($uni);
+        while (my @temp = $getids->fetchrow_array) {
+            $ids .= "$temp[0] | ";
+        }
+        if ($getids-> rows == 0) {$ids .= "None"}
+        $ids =~ s/\s\|\s$//;
         my @temp = $dialog->form( title => "Edit Diner",
                                   text => "Make any changes and press OK to save, Cancel to abandon.",
                                   list => [[ 'UNI', 1, 1 ], [ $uni, 1, 13, 0, 0],
                                            [ 'Name (L, F)', 2, 1], [$name, 2, 13, 40, 100],
                                            [ '# Meals', 3, 1], [$mealplan, 3, 13, 40, 100], 
-                                           [ 'Affiliation', 4, 1], [$affil, 4, 13, 40, 100]],
+                                           [ 'Affiliation', 4, 1], [$affil, 4, 13, 40, 100],
+                                           [ 'IDs', 5, 1], [$ids, 5, 13, -40, 100]
+                                           ],
                                   height => 12);
         if ($temp[0] eq 0) {next}
         #print join(" | ", @temp);
@@ -490,6 +501,7 @@ sub reports {
             my $rptenddate = sprintf("%04d-%02d-%02d", $y, $m, $d) . " 24:00";
             $dailyreport->execute($rptstartdate, $rptenddate);
             $dailycount->execute($rptdate);
+            $dailyaffilcount->execute($rptstartdate, $rptenddate);
 	    #chomp $rptdate;
             my $count = ($dailycount->fetchrow_array())[0];
             my $csv = Text::CSV->new ({ eol => "\r\n",
@@ -504,8 +516,13 @@ sub reports {
             $csv->print($fh, ["Report Run Time:",$today]);
             $csv->print($fh, ["Total Meals:", $count]);
             $csv->print($fh, []);
-            $csv->print($fh, \@header);
+            $csv->print($fh, ["Count by Affiliation"]);
             my @temp;
+            while(@temp = $dailyaffilcount->fetchrow_array) {
+                $csv->print($fh, \@temp)
+            }
+            $csv->print($fh, []);
+            $csv->print($fh, \@header);
             while(@temp = $dailyreport->fetchrow_array) {
                 $csv->print($fh, \@temp)
             }
